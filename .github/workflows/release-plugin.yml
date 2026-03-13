@@ -7,6 +7,16 @@ on:
       - release-test
     paths:
       - '*/plugin.json'
+  workflow_dispatch:
+    inputs:
+      plugin_id:
+        description: 'Plugin ID (directory name)'
+        required: true
+        type: string
+      version:
+        description: 'Version number (e.g., 1.0.1)'
+        required: true
+        type: string
 
 jobs:
   detect-and-release:
@@ -23,22 +33,30 @@ jobs:
       - name: Get changed plugin directories
         id: changed-plugins
         run: |
-          changed_files=$(git diff --name-only HEAD^ HEAD | grep 'plugin.json' || true)
-          if [ -z "$changed_files" ]; then
-            echo "No plugin.json files changed"
-            echo "plugins=[]" >> $GITHUB_OUTPUT
-            exit 0
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual trigger: use provided plugin_id
+            plugin_dir="${{ github.event.inputs.plugin_id }}"
+            echo "plugins=[\"$plugin_dir\"]" >> $GITHUB_OUTPUT
+            echo "Manual trigger for plugin: $plugin_dir"
+          else
+            # Auto trigger: detect changed plugin.json files
+            changed_files=$(git diff --name-only HEAD^ HEAD | grep 'plugin.json' || true)
+            if [ -z "$changed_files" ]; then
+              echo "No plugin.json files changed"
+              echo "plugins=[]" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+
+            plugins=()
+            for file in $changed_files; do
+              plugin_dir=$(dirname "$file")
+              plugins+=("\"$plugin_dir\"")
+            done
+
+            plugins_json=$(printf '%s\n' "${plugins[@]}" | jq -s -c .)
+            echo "plugins=$plugins_json" >> $GITHUB_OUTPUT
+            echo "Changed plugins: $plugins_json"
           fi
-
-          plugins=()
-          for file in $changed_files; do
-            plugin_dir=$(dirname "$file")
-            plugins+=("\"$plugin_dir\"")
-          done
-
-          plugins_json=$(printf '%s\n' "${plugins[@]}" | jq -s -c .)
-          echo "plugins=$plugins_json" >> $GITHUB_OUTPUT
-          echo "Changed plugins: $plugins_json"
 
       - name: Setup PHP
         if: steps.changed-plugins.outputs.plugins != '[]'
@@ -101,11 +119,17 @@ jobs:
               --notes "Release of $plugin_id version $new_version" \
               "$zip_name"
 
-            # Update update.json
-            jq --arg version "$new_version" --arg url "$zip_url" \
-              '.["*"].version = $version | .["*"].download_url = $url' \
-              "$plugin_dir/update.json" > /tmp/update.json.tmp
-            mv /tmp/update.json.tmp "$plugin_dir/update.json"
+            # Check if update.json needs updating
+            current_update_version=$(jq -r '.["*"].version' "$plugin_dir/update.json" 2>/dev/null || echo "")
+            if [ "$current_update_version" != "$new_version" ]; then
+              echo "Updating update.json to version $new_version"
+              jq --arg version "$new_version" --arg url "$zip_url" \
+                '.["*"].version = $version | .["*"].download_url = $url' \
+                "$plugin_dir/update.json" > /tmp/update.json.tmp
+              mv /tmp/update.json.tmp "$plugin_dir/update.json"
+            else
+              echo "update.json already at version $new_version, skipping update"
+            fi
           done
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
