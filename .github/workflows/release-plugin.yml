@@ -1,25 +1,22 @@
-name: Release Plugin on Version Bump
+name: Release Plugin
 
 on:
-  push:
-    branches:
-      - main
-      - release-test
-    paths:
-      - '*/plugin.json'
   workflow_dispatch:
     inputs:
       plugin_id:
-        description: 'Plugin ID (directory name)'
+        description: 'Plugin to release'
         required: true
-        type: string
+        type: choice
+        options:
+          - backup-templates
+          - pocketid-provider
       version:
         description: 'Version number (e.g., 1.0.1)'
         required: true
         type: string
 
 jobs:
-  detect-and-release:
+  release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -27,129 +24,49 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
 
-      - name: Get changed plugin directories
-        id: changed-plugins
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            # Manual trigger: use provided plugin_id
-            plugin_dir="${{ github.event.inputs.plugin_id }}"
-            echo "plugins=[\"$plugin_dir\"]" >> $GITHUB_OUTPUT
-            echo "Manual trigger for plugin: $plugin_dir"
-          else
-            # Auto trigger: detect changed plugin.json files
-            changed_files=$(git diff --name-only HEAD^ HEAD | grep 'plugin.json' || true)
-            if [ -z "$changed_files" ]; then
-              echo "No plugin.json files changed"
-              echo "plugins=[]" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-
-            plugins=()
-            for file in $changed_files; do
-              plugin_dir=$(dirname "$file")
-              plugins+=("\"$plugin_dir\"")
-            done
-
-            plugins_json=$(printf '%s\n' "${plugins[@]}" | jq -s -c .)
-            echo "plugins=$plugins_json" >> $GITHUB_OUTPUT
-            echo "Changed plugins: $plugins_json"
-          fi
-
-      - name: Setup PHP
-        if: steps.changed-plugins.outputs.plugins != '[]'
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.2'
-
-      - name: Process plugins
-        if: steps.changed-plugins.outputs.plugins != '[]'
+      - name: Process plugin
         id: process
         run: |
-          plugins='${{ steps.changed-plugins.outputs.plugins }}'
-          echo "$plugins" | jq -r '.[]' | while read -r plugin_dir; do
-            echo "Processing $plugin_dir..."
+          plugin_dir="${{ github.event.inputs.plugin_id }}"
+          version="${{ github.event.inputs.version }}"
 
-            php .github/scripts/detectVersionBumpAndZipUrl.php \
-              "$plugin_dir" \
-              "https://github.com/${{ github.repository }}/releases/download"
+          # Read plugin.json to get the ID
+          plugin_id=$(jq -r '.id' "$plugin_dir/plugin.json")
 
-            if [ -f "$GITHUB_OUTPUT" ]; then
-              cat "$GITHUB_OUTPUT"
-            fi
-          done
+          # Generate zip URL
+          artifact_name="${plugin_id}-${version}"
+          zip_url="https://github.com/${{ github.repository }}/releases/download/${artifact_name}/${artifact_name}.zip"
+
+          echo "Releasing $plugin_id version $version"
+          echo "plugin_id=$plugin_id" >> $GITHUB_OUTPUT
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "zip_url=$zip_url" >> $GITHUB_OUTPUT
 
       - name: Create release and upload assets
-        if: steps.process.outputs.bump_detected == 'true'
         run: |
-          plugins='${{ steps.changed-plugins.outputs.plugins }}'
-          echo "$plugins" | jq -r '.[]' | while read -r plugin_dir; do
-            # Re-run detection to get output variables for this plugin
-            php .github/scripts/detectVersionBumpAndZipUrl.php \
-              "$plugin_dir" \
-              "https://github.com/${{ github.repository }}/releases/download" > /tmp/detection_output.txt
+          plugin_dir="${{ github.event.inputs.plugin_id }}"
+          plugin_id="${{ steps.process.outputs.plugin_id }}"
+          version="${{ steps.process.outputs.version }}"
+          zip_url="${{ steps.process.outputs.zip_url }}"
 
-            # Check if bump was detected for this plugin
-            if grep -q "No version bump detected" /tmp/detection_output.txt; then
-              echo "Skipping $plugin_dir - no version bump"
-              continue
-            fi
+          echo "Creating release for $plugin_id version $version"
 
-            # Extract version info from GITHUB_OUTPUT
-            plugin_id=$(grep "plugin_id=" "$GITHUB_OUTPUT" | tail -n1 | cut -d'=' -f2)
-            new_version=$(grep "new_version=" "$GITHUB_OUTPUT" | tail -n1 | cut -d'=' -f2)
-            zip_url=$(grep "zip_url=" "$GITHUB_OUTPUT" | tail -n1 | cut -d'=' -f2)
+          # Create zip file
+          zip_name="${plugin_id}-${version}.zip"
+          cd "$plugin_dir"
+          zip -r "../$zip_name" . -x "*.git*"
+          cd ..
 
-            echo "Creating release for $plugin_id version $new_version"
+          # Create release tag
+          tag_name="${plugin_id}-${version}"
 
-            # Create zip file
-            zip_name="${plugin_id}-${new_version}.zip"
-            cd "$plugin_dir"
-            zip -r "../$zip_name" . -x "*.git*"
-            cd ..
+          # Create GitHub release
+          gh release create "$tag_name" \
+            --title "$plugin_id v$version" \
+            --notes "Release of $plugin_id version $version" \
+            "$zip_name"
 
-            # Create release tag
-            tag_name="${plugin_id}-${new_version}"
-
-            # Create GitHub release
-            gh release create "$tag_name" \
-              --title "$plugin_id v$new_version" \
-              --notes "Release of $plugin_id version $new_version" \
-              "$zip_name"
-
-            # Check if update.json needs updating
-            current_update_version=$(jq -r '.["*"].version' "$plugin_dir/update.json" 2>/dev/null || echo "")
-            if [ "$current_update_version" != "$new_version" ]; then
-              echo "Updating update.json to version $new_version"
-              jq --arg version "$new_version" --arg url "$zip_url" \
-                '.["*"].version = $version | .["*"].download_url = $url' \
-                "$plugin_dir/update.json" > /tmp/update.json.tmp
-              mv /tmp/update.json.tmp "$plugin_dir/update.json"
-            else
-              echo "update.json already at version $new_version, skipping update"
-            fi
-          done
+          echo "Release created: $tag_name"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Commit updated update.json
-        if: steps.process.outputs.bump_detected == 'true'
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-
-          plugins='${{ steps.changed-plugins.outputs.plugins }}'
-          echo "$plugins" | jq -r '.[]' | while read -r plugin_dir; do
-            if [ -f "$plugin_dir/update.json" ]; then
-              git add "$plugin_dir/update.json"
-            fi
-          done
-
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "chore: update plugin update.json files [skip ci]"
-            git push
-          fi
