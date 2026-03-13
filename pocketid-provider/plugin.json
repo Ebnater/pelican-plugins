@@ -6,7 +6,7 @@
   "description": "Allows you to use PocketID as an OAuth provider.",
   "category": "plugin",
   "url": "https://github.com/Ebnater/pelican-plugins/tree/main/pocketid-provider",
-  "update_url": "https://github.com/Ebnater/pelican-plugins/tree/main/pocketid-provider/update.json",
+  "update_url": "https://raw.githubusercontent.com/Ebnater/pelican-plugins/main/pocketid-provider/update.json",
   "namespace": "Ebnater\\PocketIDProvider",
   "class": "PocketIDProviderPlugin",
   "panels": null,
