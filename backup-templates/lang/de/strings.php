@@ -10,6 +10,8 @@ return [
 
     'fields' => [
         'name' => 'Name',
+        'is_default' => 'Standardvorlage',
+        'is_default_help' => 'Wählt diese Vorlage beim Erstellen eines neuen Backups für diesen Server automatisch voraus.',
         'ignored' => 'Ignorierte Dateien und Ordner',
         'ignored_help' => 'Verwenden Sie einen Pfad pro Zeile, der dem Pelican-Backup-Ignore-Format entspricht.',
     ],

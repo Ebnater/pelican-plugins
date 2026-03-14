@@ -10,6 +10,8 @@ return [
 
     'fields' => [
         'name' => 'Name',
+        'is_default' => 'Default Template',
+        'is_default_help' => 'Preselect this template when creating a new backup for this server.',
         'ignored' => 'Ignored Files and Folders',
         'ignored_help' => 'Use one path per line, matching Pelican backup ignore format.',
     ],

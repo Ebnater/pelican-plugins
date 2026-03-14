@@ -4,6 +4,7 @@ namespace Ebnater\BackupTemplates\Filament\Server\Resources\BackupTemplates;
 
 use App\Enums\SubuserPermission;
 use App\Models\Server;
+use BackedEnum;
 use Ebnater\BackupTemplates\Filament\Server\Resources\BackupTemplates\Pages\ListBackupTemplates;
 use Ebnater\BackupTemplates\Models\BackupTemplate;
 use Filament\Actions\DeleteAction;
@@ -11,8 +12,10 @@ use Filament\Actions\EditAction;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
+use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -23,7 +26,7 @@ class BackupTemplateResource extends Resource
 
     protected static ?int $navigationSort = 31;
 
-    protected static string|\BackedEnum|null $navigationIcon = 'tabler-template';
+    protected static string|BackedEnum|null $navigationIcon = 'tabler-template';
 
     public static function canAccess(): bool
     {
@@ -58,6 +61,9 @@ class BackupTemplateResource extends Resource
                     ->label(trans('backup-templates::strings.fields.name'))
                     ->required()
                     ->maxLength(255),
+                Toggle::make('is_default')
+                    ->label(trans('backup-templates::strings.fields.is_default'))
+                    ->helperText(trans('backup-templates::strings.fields.is_default_help')),
                 Textarea::make('ignored')
                     ->label(trans('backup-templates::strings.fields.ignored'))
                     ->helperText(trans('backup-templates::strings.fields.ignored_help'))
@@ -70,6 +76,9 @@ class BackupTemplateResource extends Resource
     {
         return $table
             ->columns([
+                IconColumn::make('is_default')
+                    ->label(trans('backup-templates::strings.fields.is_default'))
+                    ->boolean(),
                 TextColumn::make('name')
                     ->label(trans('backup-templates::strings.fields.name'))
                     ->searchable()
@@ -98,6 +107,7 @@ class BackupTemplateResource extends Resource
         $server = Filament::getTenant();
 
         return parent::getEloquentQuery()
+            ->orderByDesc('is_default')
             ->when($server, fn (Builder $query) => $query->where('server_id', $server->id));
     }
 }

@@ -27,6 +27,19 @@ class BackupTemplatesPluginProvider extends ServiceProvider
 
             $components[] = Select::make('backup_template_id')
                 ->label(trans('backup-templates::strings.backup_form.template'))
+                ->default(function (): ?int {
+                    /** @var Server|null $server */
+                    $server = Filament::getTenant();
+
+                    if (!$server) {
+                        return null;
+                    }
+
+                    return BackupTemplate::query()
+                        ->where('server_id', $server->id)
+                        ->where('is_default', true)
+                        ->value('id');
+                })
                 ->options(function (): array {
                     /** @var Server|null $server */
                     $server = Filament::getTenant();
@@ -37,6 +50,7 @@ class BackupTemplatesPluginProvider extends ServiceProvider
 
                     return BackupTemplate::query()
                         ->where('server_id', $server->id)
+                        ->orderByDesc('is_default')
                         ->orderBy('name')
                         ->pluck('name', 'id')
                         ->toArray();
@@ -47,6 +61,26 @@ class BackupTemplatesPluginProvider extends ServiceProvider
                 ->dehydrated(false)
                 ->placeholder(trans('backup-templates::strings.backup_form.template_placeholder'))
                 ->helperText(trans('backup-templates::strings.backup_form.template_help'))
+                ->afterStateHydrated(function ($state, Set $set): void {
+                    if (blank($state)) {
+                        return;
+                    }
+
+                    /** @var Server|null $server */
+                    $server = Filament::getTenant();
+
+                    if (!$server) {
+                        return;
+                    }
+
+                    $template = BackupTemplate::query()
+                        ->where('server_id', $server->id)
+                        ->find($state);
+
+                    if ($template) {
+                        $set('ignored', $template->ignored ?? '');
+                    }
+                })
                 ->afterStateUpdated(function ($state, Set $set): void {
                     if (blank($state)) {
                         return;
