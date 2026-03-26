@@ -97,18 +97,91 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generate changelog
+        shell: bash
         run: |
           plugin_id="${{ github.event.inputs.plugin_id }}"
+          version="${{ github.event.inputs.version }}"
+          repo="${{ github.repository }}"
           last_tag=$(git tag --list "${plugin_id}-*" --sort=-version:refname | head -n1)
+          range_arg=""
           if [ -n "$last_tag" ]; then
-            log=$(git log "${last_tag}..HEAD" --pretty=format:"- %s" -- "$plugin_id/")
-          else
-            log=$(git log --pretty=format:"- %s" -- "$plugin_id/")
+            range_arg="${last_tag}..HEAD"
           fi
-          if [ -z "$log" ]; then
-            log="- Initial release"
-          fi
-          echo "$log" > CHANGELOG_NOTES.md
+
+          # Collect commits: "hash subject" lines
+          commits=$(git log "$range_arg" --pretty=format:"%H %s" -- "$plugin_id/")
+
+          declare -A sections
+          sections[feat]=""
+          sections[fix]=""
+          sections[perf]=""
+          sections[refactor]=""
+          sections[other]=""
+
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            hash=$(echo "$line" | cut -d' ' -f1)
+            subject=$(echo "$line" | cut -d' ' -f2-)
+            short_hash=${hash:0:7}
+            commit_url="https://github.com/${repo}/commit/${hash}"
+            entry="- ${subject} ([${short_hash}](${commit_url}))"
+
+            if echo "$subject" | grep -qiE '^feat(\(.+\))?!?:'; then
+              sections[feat]+="${entry}"$'\n'
+            elif echo "$subject" | grep -qiE '^fix(\(.+\))?!?:'; then
+              sections[fix]+="${entry}"$'\n'
+            elif echo "$subject" | grep -qiE '^perf(\(.+\))?!?:'; then
+              sections[perf]+="${entry}"$'\n'
+            elif echo "$subject" | grep -qiE '^refactor(\(.+\))?!?:'; then
+              sections[refactor]+="${entry}"$'\n'
+            elif echo "$subject" | grep -qiE '^(chore|docs|style|test|ci|build)(\(.+\))?!?:'; then
+              : # skip maintenance commits from release notes
+            else
+              sections[other]+="${entry}"$'\n'
+            fi
+          done <<< "$commits"
+
+          {
+            echo "## What's Changed"
+            echo ""
+
+            if [ -n "${sections[feat]}" ]; then
+              echo "### ✨ New Features"
+              printf '%s' "${sections[feat]}"
+              echo ""
+            fi
+            if [ -n "${sections[fix]}" ]; then
+              echo "### 🐛 Bug Fixes"
+              printf '%s' "${sections[fix]}"
+              echo ""
+            fi
+            if [ -n "${sections[perf]}" ]; then
+              echo "### ⚡ Performance Improvements"
+              printf '%s' "${sections[perf]}"
+              echo ""
+            fi
+            if [ -n "${sections[refactor]}" ]; then
+              echo "### ♻️ Refactoring"
+              printf '%s' "${sections[refactor]}"
+              echo ""
+            fi
+            if [ -n "${sections[other]}" ]; then
+              echo "### 🔀 Other Changes"
+              printf '%s' "${sections[other]}"
+              echo ""
+            fi
+
+            if [ -z "${sections[feat]}${sections[fix]}${sections[perf]}${sections[refactor]}${sections[other]}" ]; then
+              echo "_No user-facing changes in this release._"
+              echo ""
+            fi
+
+            if [ -n "$last_tag" ]; then
+              echo "**Full Changelog**: https://github.com/${repo}/compare/${last_tag}...${plugin_id}-${version}"
+            else
+              echo "**Full Changelog**: https://github.com/${repo}/commits/${plugin_id}-${version}"
+            fi
+          } > CHANGELOG_NOTES.md
 
       - name: Update plugin.json and update.json
         run: |
