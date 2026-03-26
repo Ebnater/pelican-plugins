@@ -92,6 +92,20 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Generate changelog
+        run: |
+          plugin_id="${{ github.event.inputs.plugin_id }}"
+          last_tag=$(git tag --list "${plugin_id}-*" --sort=-version:refname | head -n1)
+          if [ -n "$last_tag" ]; then
+            log=$(git log "${last_tag}..HEAD" --pretty=format:"- %s" -- "$plugin_id/")
+          else
+            log=$(git log --pretty=format:"- %s" -- "$plugin_id/")
+          fi
+          if [ -z "$log" ]; then
+            log="- Initial release"
+          fi
+          echo "$log" > CHANGELOG_NOTES.md
+
       - name: Update plugin.json and update.json
         run: |
           plugin_id="${{ github.event.inputs.plugin_id }}"
@@ -113,20 +127,6 @@ jobs:
             git commit -m "chore: release ${{ github.event.inputs.plugin_id }} v${{ github.event.inputs.version }}"
             git push
           fi
-
-      - name: Generate changelog
-        run: |
-          plugin_id="${{ github.event.inputs.plugin_id }}"
-          last_tag=$(git tag --list "${plugin_id}-*" --sort=-version:refname | head -n1)
-          if [ -n "$last_tag" ]; then
-            log=$(git log "${last_tag}..HEAD" --pretty=format:"- %s" -- "$plugin_id/")
-          else
-            log=$(git log --pretty=format:"- %s" -- "$plugin_id/")
-          fi
-          if [ -z "$log" ]; then
-            log="- Initial release"
-          fi
-          echo "$log" > CHANGELOG_NOTES.md
 
       - name: Create zip archive
         run: |
