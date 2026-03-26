@@ -16,6 +16,8 @@ jobs:
   validate:
     name: Validate inputs
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       tag_name: ${{ steps.check.outputs.tag_name }}
 
@@ -58,6 +60,8 @@ jobs:
     name: Lint
     needs: validate
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout repository
