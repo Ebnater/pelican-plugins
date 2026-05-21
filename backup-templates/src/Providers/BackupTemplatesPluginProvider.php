@@ -20,7 +20,11 @@ class BackupTemplatesPluginProvider extends ServiceProvider
 {
     public function register(): void
     {
-        Subuser::registerCustomPermissions('backupTemplates', ['create'], 'tabler-template');
+        Subuser::registerCustomPermissions(
+            name: 'backupTemplates',
+            permissions: ['create'],
+            icon: 'tabler-template',
+        );
 
         BackupResource::modifyForm(function (Schema $schema): Schema {
             $components = $schema->getComponents();
